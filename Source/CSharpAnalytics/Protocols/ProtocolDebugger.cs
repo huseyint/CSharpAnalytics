@@ -14,7 +14,7 @@ namespace CSharpAnalytics.Protocols
     /// <remarks>
     /// Output is similar to ga_debug.js.
     /// </remarks>
-    internal class ProtocolDebugger
+    public class ProtocolDebugger
     {
         private readonly ParameterDefinition[] parameterDefinitions;
         private readonly Action<string> writer;

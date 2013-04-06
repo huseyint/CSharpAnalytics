@@ -10,7 +10,7 @@ namespace CSharpAnalytics.Protocols
     /// Defines the parameter name, human-readable label and decoder used to implement
     /// debugging and decoding of Google Analytics requests.
     /// </summary>
-    class ParameterDefinition
+    public class ParameterDefinition
     {
         private static readonly Func<string, string> defaultFormatter = s => s;
 
