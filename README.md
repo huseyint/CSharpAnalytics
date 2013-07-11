@@ -1,18 +1,18 @@
 CSharpAnalytics
 ===============
 
-CSharpAnalytics is a C# library for tracking your application metrics via Google Analytics.
+CSharpAnalytics is a free C# library for tracking application metrics via Google Analytics.
 
 The pitch
 ---------
 
 **Why add metrics to your app?**
 
-Metrics let you see what's actually happening with your app in the real world. Crash rates, performance data, feature usage content popularity let you find out what is important to your users and where to spend your effort.
+Metrics let you see what your app is actually doing in the real world. Crash rates, performance data and feature usage content popularity let you find out what is important to your users and where to spend your effort for the next version.
 
 **Why use Google Analytics?**
 
-Google Analytics is capable, well-supported, easy to use and free. While originally designed for web analytics it is gaining more and more app-specific metrics. The forthcoming Measurement Protocol adds even more with screen views, device breakout and crash data.
+Google Analytics is capable, well-supported, easy to use and free. While originally designed for web analytics the Measurement Protocol expands into more app-specific metrics and features incluing screen views, device breakout and crash data.
 
 **Why the CSharpAnalytics project?**
 
@@ -22,74 +22,95 @@ This is the best solution for C# apps wanting to talk to Google Analytics. Why?
 1. Pure C# - easy to debug, extend or port (no JavaScript, web views or DLLs)
 1. Feature rich - offline, configurable, OS stats
 
+Still not convinced? Check out [how we compare to the alternatives](https://github.com/AttackPattern/CSharpAnalytics/wiki/Comparison)
+
 Platforms
 ---------
 Our goal is to support all major C# platforms. Right now we have project files for:
 
-* Windows 8 Store applications (Visual Studio 2012)
-* .NET 4.5 applications (Visual Studio 2012)
+* Windows 8 Store applications (Visual Studio 2012, Measurement Protocol, AutoMeasurement)
+* .NET 4.5 applications (Visual Studio 2012, Urchin & Measurement Protocol)
 
-Windows 8 Store support also includes a sample app and AutoAnalytics to add basic analytics to your app with just two lines of code.
+Windows 8 Store support also includes a sample app and AutoMeasurement to add basic analytics to your app with just two lines of code.
 
 Features
 --------
-* Offline and online support
-* Configurable upload interval, over HTTPS/SSL if required
-* Support for page views, events, timed events, social events, custom variables
+* Online and offline support with timestamping
+* Configurable upload interval, over HTTPS/SSL if desired
+* Support for page/screen views, events, timed events, social events, custom variables/dimensions/metrics
 * Manages visitor and session state
-* Can auto-hook into a number of interesting events
 * Built-in debug output window support (ga_debug.js style)
-* Tracks operating system and version
+
+Additionally there are some Windows 8 specific features:
+
+* AutoMeasurement can hook into a number of interesting events for you
+* Tracks operating system and version (Windows 8)
 * Helpers for device model, processor architecture
+
+Important notes
+---------------
+* This project is new and under active development, ensure suitability of code for your purposes
+* Windows 8 network metering is not honored by analytics at this time
 
 Getting started
 ---------------
 You will need:
 
-* Google Analytics account - Head to http://analytics.google.com and sign-up if you don't have one
-* Analytics property set-up as a **web site**
-
-If you want to set-up your Analytisc property as an App then try out our experimental AutoMeasurement and MeasurementAnalyticsClient classes.
+* Google Analytics account - [Sign up](http://analytics.google.com) if you don't have one
+* An analytics property set-up as an app ("Track interactions within Android and iOS apps")
 
 Download or clone the source and add a reference to CSharpAnalytics.WindowsStore from your application.
 
-AutoAnalytics for Windows 8
----------------------------
-The easiest way to start is to use the AutoAnalytics class. It hooks into a few events and will automatically give you:
+Automatic analytics for Windows 8
+---------------------------------
+The easiest way to start is to use the AutoMeasurement helper class. It hooks into a few events and will automatically give you:
 
 * Application launch/suspend events
 * Visitor, session counts, time-spent
 * Social sharing events
 * Basic page navigation activity
-* Unhandled exception details
 
-To use it simply add two lines to your App.xaml.cs:
+Simply add two lines to your App.xaml.cs OnLaunched method. At the start of the method add:
 
-**Start analytics** with this line in App.OnLaunched directly before Window.Current.Activate() - replace the configuration values with your own.
+`var analyticsTask = AutoMeasurement.StartAsync(new MeasurementConfiguration("UA-319000-8"));`
 
-`await AutoAnalytics.StartAsync(new UrchinConfiguration("UA-319000-10", "sample.csharpanalytics.com"));`
+Replacing UA-319000-8 with your own Analytics property ID. At the end of the method add:
 
-**Stop analytics** with this line in App.OnSuspending directly before deferral.Complete()
-
-`await AutoAnalytics.StopAsync();`
+`AutoMeasurement.Attach(rootFrame);`
 
 Check out the CSharpAnalytics.Sample.WindowsStore application if still unsure of usage.
 
+NOTE: There is no need to await for the analyticsTask to complete. In fact doing so will slow down your app start-up!
+
 Going further
 -------------
-AutoAnalytics is a start but you'll certainly want to go further.
+AutoMeasurement is a start but you'll certainly want to go further.
 
-**For pages that display content from a data source**
+**To allow users to opt in/out**
 
-Add ITrackPageView to your page to stop AutoAnalytics from tracking it and instead track it yourself once the content is loaded - we recommend the end of the LoadState method with something like:
+There is a bindable class called AnalyticsUserOptions that can be bound to that automatically takes care of switching
+AutoMeasurement on and off. See the OptionsFlyout in the Windows 8 sample application for an example of usage.
 
-`AutoAnalytics.Client.TrackPageView(item.Title, "/news/" + item.Id);`
+**To give a page a different name in analytics**
+
+The default name for a page is the class name of the page with "Page" removed from the end. e.g. "TopNewsPage" would be tracked as "TopNews".
+
+For a screen name that doesn't change based on data consider adding the AnalyticsScreenName attribute to the page class. e.g.
+
+```
+[AnalyticsScreenName("Top news")]
+ class TopNewsPage {
+```
+
+For screen names that change depending on the data the screen is displaying add ITrackOwnView to the Page class. This empty marker interface does not require you do anything but signals to AutoMeasurement that you will track the screen view yourself. To do that you would add a line of code to the LoadState method of your page once the data has been loaded, e.g.
+
+`AutoMeasurement.Client.TrackAppView(item.Title);`
 
 **For additional user events**
 
-Say you want to track when the video "Today's News" is played back:
+If you want to track when the video "Today's News" is played back:
 
-`AutoAnalytics.Client.TrackEvent("Play", "Video", "Today's News");`
+`AutoMeasurement.Client.TrackEvent("Play", "Video", "Today's News");`
 
 **For timing**
 
@@ -98,7 +119,7 @@ If you want to track how long something takes:
 ```
 var timedActivity = new AutoTimedEventActivity("Loading", "Pictures");
 // do something that takes time
-AutoAnalytics.Client.Track(timedActivity);
+AutoMeasurement.Client.Track(timedActivity);
 ```
 
 Privacy
@@ -115,17 +136,18 @@ In summary: **Do not share personally identifyable information**
 Untested
 ----------------
 1. E-commerce tracking (Windows Store already has its own)
-1. Campaign tracking (limited use as Windows Store doesn't pass through parameters)
+1. Campaign tracking (Windows Store doesn't pass through necessary parameters)
 
 Future enhancements
 -------------------
-1. Custom dimensions/parameters for Measurement Protocol
+1. Add support for Windows 8 network metering modes
 1. Additional platforms (Windows Phone 7/8, Silverlight, Mono)
-1. Opt-out support via session state switch and null receiver
-1. Throttling of hits as per official SDKs
-1. Persist and restore session and visitor custom variables
+1. Throttling & replentishing of hits as per official SDKs
+1. Sample rates
+1. Configurable session management modes
+1. In-app purchase integration
 
-If you want to contribute please consider the CSharpAnalytics.sln which will load all platforms and unit tests.
+If you want to contribute please consider the CSharpAnalytics.sln which will load all platforms and unit tests (if you get any project load failures you're probably missing an SDK)
 
 Licence
 -------

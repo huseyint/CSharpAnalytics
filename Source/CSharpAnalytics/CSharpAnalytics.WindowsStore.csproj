@@ -36,7 +36,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|ARM'">
     <DebugSymbols>true</DebugSymbols>
     <OutputPath>bin\ARM\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE;NETFX_CORE</DefineConstants>
+    <DefineConstants>TRACE;DEBUG;NETFX_CORE;WINDOWS_STORE</DefineConstants>
     <NoWarn>;2008</NoWarn>
     <DebugType>full</DebugType>
     <PlatformTarget>ARM</PlatformTarget>
@@ -47,7 +47,7 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|ARM'">
     <OutputPath>bin\ARM\Release\</OutputPath>
-    <DefineConstants>TRACE;NETFX_CORE</DefineConstants>
+    <DefineConstants>TRACE;NETFX_CORE;WINDOWS_STORE</DefineConstants>
     <Optimize>true</Optimize>
     <NoWarn>;2008</NoWarn>
     <DebugType>pdbonly</DebugType>
@@ -60,7 +60,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
     <DebugSymbols>true</DebugSymbols>
     <OutputPath>bin\x64\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE;NETFX_CORE</DefineConstants>
+    <DefineConstants>TRACE;DEBUG;NETFX_CORE;WINDOWS_STORE</DefineConstants>
     <NoWarn>;2008</NoWarn>
     <DebugType>full</DebugType>
     <PlatformTarget>x64</PlatformTarget>
@@ -71,7 +71,7 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
     <OutputPath>bin\x64\Release\</OutputPath>
-    <DefineConstants>TRACE;NETFX_CORE</DefineConstants>
+    <DefineConstants>TRACE;NETFX_CORE;WINDOWS_STORE</DefineConstants>
     <Optimize>true</Optimize>
     <NoWarn>;2008</NoWarn>
     <DebugType>pdbonly</DebugType>
@@ -84,7 +84,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x86'">
     <DebugSymbols>true</DebugSymbols>
     <OutputPath>bin\x86\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE;NETFX_CORE</DefineConstants>
+    <DefineConstants>TRACE;DEBUG;NETFX_CORE;WINDOWS_STORE</DefineConstants>
     <NoWarn>;2008</NoWarn>
     <DebugType>full</DebugType>
     <PlatformTarget>x86</PlatformTarget>
@@ -95,7 +95,7 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x86'">
     <OutputPath>bin\x86\Release\</OutputPath>
-    <DefineConstants>TRACE;NETFX_CORE</DefineConstants>
+    <DefineConstants>TRACE;NETFX_CORE;WINDOWS_STORE</DefineConstants>
     <Optimize>true</Optimize>
     <NoWarn>;2008</NoWarn>
     <DebugType>pdbonly</DebugType>
@@ -116,43 +116,37 @@
     </Compile>
     <Compile Include="Activities\TransactionActivity.cs" />
     <Compile Include="Activities\EventActivity.cs" />
-    <Compile Include="Activities\PageViewActivity.cs" />
     <Compile Include="Activities\SocialActivity.cs" />
     <Compile Include="Activities\TransactionItemActivity.cs" />
-    <Compile Include="CustomVariables\ScopedCustomVariable.cs" />
+    <Compile Include="AutoMeasurement\AnalyticsScreenNameAttribute.cs" />
+    <Compile Include="Network\BackgroundHttpClientRequester.cs" />
+    <Compile Include="Network\BackgroundHttpFuncRequester.cs" />
     <Compile Include="Protocols\Measurement\IMeasurementActivity.cs" />
+    <Compile Include="Protocols\Measurement\MeasurementActivityEntry.cs" />
+    <Compile Include="Protocols\Measurement\MeasurementActivityExtensions.cs" />
+    <Compile Include="Protocols\Measurement\MeasurementActivityParameterBuilder.cs" />
     <Compile Include="Protocols\Measurement\MeasurementAnalyticsClient.cs" />
     <Compile Include="Protocols\Measurement\MeasurementConfiguration.cs" />
     <Compile Include="Protocols\Measurement\MeasurementParameterDefinitions.cs" />
     <Compile Include="Protocols\Measurement\MeasurementTracker.cs" />
-    <Compile Include="Protocols\Measurement\MeasurementActivityTracker.cs" />
+    <Compile Include="Protocols\Measurement\MeasurementUriBuilder.cs" />
     <Compile Include="Protocols\Urchin\IUrchinActivity.cs" />
-    <Compile Include="Protocols\Urchin\UrchinAnalyticsClient.cs" />
-    <Compile Include="Protocols\Urchin\UrchinConfiguration.cs" />
-    <Compile Include="WindowsStore\AutoAnalytics.cs" />
     <Compile Include="Network\BackgroundHttpRequester.cs" />
     <Compile Include="IEnvironment.cs" />
-    <Compile Include="CustomVariables\CustomVariable.cs" />
-    <Compile Include="CustomVariables\CustomVariableScope.cs" />
-    <Compile Include="CustomVariables\ScopedCustomVariableSlots.cs" />
-    <Compile Include="CustomVariables\EvaluatedCustomVariable.cs" />
-    <Compile Include="CustomVariables\ICustomVariable.cs" />
     <Compile Include="Protocols\ProtocolDebugger.cs" />
     <Compile Include="Protocols\ParameterDefinition.cs" />
-    <Compile Include="Protocols\Urchin\UrchinParameterDefinitions.cs" />
-    <Compile Include="Protocols\Urchin\UtmeDecoder.cs" />
     <Compile Include="Environment.cs" />
     <Compile Include="Protocols\EpochTime.cs" />
-    <Compile Include="Protocols\Urchin\UrchinTracker.cs" />
-    <Compile Include="Protocols\Urchin\UrchinActivityTracker.cs" />
     <Compile Include="Protocols\KeyValuePair.cs" />
-    <Compile Include="Protocols\Urchin\UtmeEncoder.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Sessions\Session.cs" />
     <Compile Include="Sessions\SessionManager.cs" />
     <Compile Include="Sessions\SessionState.cs" />
+    <Compile Include="Sessions\TimeoutSessionManager.cs" />
     <Compile Include="Sessions\Visitor.cs" />
     <Compile Include="WindowsStore\AutoMeasurement.cs" />
+    <Compile Include="AutoMeasurement\ITrackOwnView.cs" />
+    <Compile Include="WindowsStore\AnalyticsUserOptions.cs" />
     <Compile Include="WindowsStore\SystemInformation.cs" />
     <Compile Include="WindowsStore\WindowsStoreEnvironment.cs" />
     <Compile Include="WindowsStore\LocalFolderContractSerializer.cs" />

@@ -1,5 +1,6 @@
 ﻿using System;
-using System.Net.Http;
+using System.Collections.Generic;
+using System.Linq;
 using CSharpAnalytics.Network;
 #if WINDOWS_STORE
 using Microsoft.VisualStudio.TestPlatform.UnitTestFramework;
@@ -13,41 +14,51 @@ namespace CSharpAnalytics.Test.Network
     public class BackgroundHttpRequesterTests
     {
         [TestMethod]
-        public void BackgroundHttpRequester_CreateMessage_Uses_Get_Under_2000_Bytes()
+        public void BackgroundHttpRequester_Start_Uses_Previous_List()
         {
-            var shortUri = new Uri("http://unittest.csharpanalytics.com");
-            var message = BackgroundHttpRequester.CreateRequestMessage(shortUri);
-            
-            Assert.AreEqual(HttpMethod.Get, message.Method);
-            Assert.AreEqual(shortUri.AbsoluteUri, message.RequestUri.AbsoluteUri);
-            Assert.IsNull(message.Content);
+            var expectedList = TestHelpers.CreateRequestList(4);
+            var actualList = new List<Uri>();
+            Func<Uri, bool> processor = u => { actualList.Add(u); return true; };
+
+            var requester = new BackgroundHttpFuncRequester(processor);
+            requester.Start(TimeSpan.FromMilliseconds(10), expectedList);
+
+            TestHelpers.WaitForQueueToEmpty(requester);
+            Assert.AreEqual(expectedList.Count, actualList.Count);
+            CollectionAssert.AreEqual(expectedList, actualList);
         }
 
         [TestMethod]
-        public void BackgroundHttpRequester_CreateMessage_Uses_Post_Over_2000_Bytes()
+        public void BackgroundHttpRequester_Start_Uses_Previous_List_First()
         {
-            var baseUri = new Uri("http://unittest.csharpanalytics.com/a");
-            var messageUri = new Uri(baseUri.AbsoluteUri + "?" + RandomChars(2000));
-            var encodedQuery = messageUri.GetComponents(UriComponents.Query, UriFormat.UriEscaped);
+            var expectedList = TestHelpers.CreateRequestList(10);
+            var actualList = new List<Uri>();
+            Func<Uri, bool> processor = u => { actualList.Add(u); return true; };
 
-            var message = BackgroundHttpRequester.CreateRequestMessage(messageUri);
+            var requester = new BackgroundHttpFuncRequester(processor);
+            requester.Start(TimeSpan.FromMilliseconds(10), expectedList.Take(5));
+            foreach (var uri in expectedList.Skip(5))
+                requester.Add(uri);
 
-            Assert.AreEqual(HttpMethod.Post, message.Method);
-            Assert.AreEqual(baseUri.AbsoluteUri, message.RequestUri.AbsoluteUri);
-            Assert.AreEqual(encodedQuery, message.Content.ReadAsStringAsync().Result);
+            TestHelpers.WaitForQueueToEmpty(requester);
+            Assert.AreEqual(expectedList.Count, actualList.Count);
+            CollectionAssert.AreEqual(expectedList, actualList);
         }
 
-        private static readonly Random random = new Random();
-        private const int AsciiLow = 32;
-        private const int AsciiHigh = 127;
-
-        private static string RandomChars(int length)
+        [TestMethod]
+        public void BackgroundHttpRequester_StopAsync_Stops_Requesting()
         {
-            var chars = new char[length];
-            for (var i = 0; i < length; i++)
-                chars[i] = (char)random.Next(AsciiLow, AsciiHigh);
+            var actualList = new List<Uri>();
+            Func<Uri, bool> processor = u => { actualList.Add(u); return true; };
 
-            return new string(chars);
+            var requester = new BackgroundHttpFuncRequester(processor);
+            requester.Start(TimeSpan.FromMilliseconds(10));
+            requester.StopAsync().Wait();
+            foreach (var uri in TestHelpers.CreateRequestList(3))
+                requester.Add(uri);
+
+            Assert.AreEqual(0, actualList.Count);
+            Assert.AreEqual(3, requester.QueueCount);
         }
     }
 }

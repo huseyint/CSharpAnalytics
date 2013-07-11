@@ -42,13 +42,19 @@ namespace CSharpAnalytics.WindowsStore
         /// <returns>The likely processor architecture of this computer.</returns>
         public static async Task<ProcessorArchitecture> GetProcessorArchitectureAsync()
         {
-            var halDevice = await GetHalDevice(ItemNameKey);
-            if (halDevice != null && halDevice.Properties[ItemNameKey] != null)
+            try
             {
-                var halName = halDevice.Properties[ItemNameKey].ToString();
-                if (halName.Contains("x64")) return ProcessorArchitecture.X64;
-                if (halName.Contains("ARM")) return ProcessorArchitecture.Arm;
-                return ProcessorArchitecture.X86;
+                var halDevice = await GetHalDevice(ItemNameKey);
+                if (halDevice != null && halDevice.Properties[ItemNameKey] != null)
+                {
+                    var halName = halDevice.Properties[ItemNameKey].ToString();
+                    return halName.Contains("x64") ? ProcessorArchitecture.X64 :
+                            halName.Contains("ARM") ? ProcessorArchitecture.Arm :
+                            ProcessorArchitecture.X86;
+                }
+            }
+            catch
+            {
             }
 
             return ProcessorArchitecture.Unknown;
@@ -90,7 +96,7 @@ namespace CSharpAnalytics.WindowsStore
         /// <summary>
         /// Get the device category this computer belongs to.
         /// </summary>
-        /// <returns></returns>
+        /// <returns>The category of this device.</returns>
         public static async Task<string> GetDeviceCategoryAsync()
         {
             var rootContainer = await PnpObject.CreateFromIdAsync(PnpObjectType.DeviceContainer, RootContainer, new[] { DisplayPrimaryCategoryKey });
@@ -126,7 +132,14 @@ namespace CSharpAnalytics.WindowsStore
         {
             var actualProperties = properties.Concat(new[] { DeviceClassKey });
             var rootDevices = (await PnpObject.FindAllAsync(PnpObjectType.Device, actualProperties, RootContainerQuery));
-            return rootDevices.FirstOrDefault(y => y.Properties.Last().Value.ToString().Equals(HalDeviceClass));
+            foreach (var rootDevice in rootDevices.Where(d => d.Properties != null && d.Properties.Any()))
+            {
+                var lastProperty = rootDevice.Properties.Last();
+                if (lastProperty.Value != null)
+                    if (lastProperty.Value.ToString().Equals(HalDeviceClass))
+                        return rootDevice;
+            }
+            return null;
         }
 
         /// <summary>

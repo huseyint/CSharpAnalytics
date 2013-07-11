@@ -2,148 +2,67 @@
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. 
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
-using System.Linq;
-using System;
-using System.Collections.Generic;
-using System.Globalization;
+using CSharpAnalytics.Activities;
 using CSharpAnalytics.Sessions;
+using System;
 
 namespace CSharpAnalytics.Protocols.Measurement
 {
     /// <summary>
-    /// Creates Measurement Protocol URIs for tracking by Google Analytics Measurement Protocol endpoint.
+    /// MeasurementTracker coordinates the tracking of IMeasurementActivity with the environment, session and sender.
     /// </summary>
     internal class MeasurementTracker
     {
-        private const string ProtocolVersion = "1";
-        private const string ResolutionFormat = "{0}x{1}";
-
-        private static readonly Random random = new Random();
-        private static readonly Uri trackingEndpoint = new Uri("http://www.google-analytics.com/collect");
-        private static readonly Uri secureTrackingEndpoint = new Uri("https://ssl.google-analytics.com/collect");
-
-        private readonly MeasurementActivityTracker activityTracker = new MeasurementActivityTracker();
         private readonly SessionManager sessionManager;
-        private readonly MeasurementConfiguration configuration;
-        private readonly IEnvironment environment;
+        private readonly Action<Uri> sender;
+        private readonly MeasurementUriBuilder uriBuilder;
+
+        private TransactionActivity lastTransaction;
 
         /// <summary>
-        /// Create new MeasurementTracker to prepare URIs for Google's Measurement Protocol endpoint.
+        /// Create a new MeasurementTracker with a given configuration, session, environment and URI sender.
         /// </summary>
-        /// <param name="configuration">Configuration of analytics.</param>
-        /// <param name="sessionManager">Session manager.</param>
-        /// <param name="environment">Environment details.</param>
-        public MeasurementTracker(MeasurementConfiguration configuration, SessionManager sessionManager, IEnvironment environment)
+        /// <param name="configuration">Configuration of this Google Analytics Measurement Protocol client.</param>
+        /// <param name="sessionManager">Session manager with visitor and session information.</param>
+        /// <param name="environment">Provider of environmental information such as screen resolution.</param>
+        /// <param name="sender">Action to take prepared URIs for Google Analytics and send them on.</param>
+        public MeasurementTracker(MeasurementConfiguration configuration, SessionManager sessionManager, IEnvironment environment, Action<Uri> sender)
         {
-            this.configuration = configuration;
             this.sessionManager = sessionManager;
-            this.environment = environment;
+            this.sender = sender;
+            uriBuilder = new MeasurementUriBuilder(configuration, sessionManager, environment);
         }
 
         /// <summary>
-        /// Create an Measurement Protocol URI from an activity and custom variables.
+        /// Track an activity in analytics.
         /// </summary>
-        /// <param name="activity">Activity to create a URI for.</param>
-        /// <returns>URI that when requested will track this activity.</returns>
-        public Uri CreateUri(IMeasurementActivity activity)
+        /// <param name="entry">MeasurementActivityEntry to track in analytics.</param>
+        public void Track(MeasurementActivityEntry entry)
         {
-            var parameters = BuildParameterList(activity);
-            var uriBuilder = new UriBuilder(configuration.UseSsl ? secureTrackingEndpoint : trackingEndpoint) { Query = CreateQueryString(parameters) };
-            return uriBuilder.Uri;
+            if (sessionManager.VisitorStatus != VisitorStatus.Active) return;
+
+            CarryForwardLastTransaction(entry.Activity);
+
+            sessionManager.Hit();
+            if (entry.EndSession)
+                sessionManager.End();
+
+            var trackingUri = uriBuilder.BuildUri(entry);
+            sender(trackingUri);
         }
 
         /// <summary>
-        /// Build a list of the parameters required based on configuration, environment, activity, session, custom variables and state.
+        /// Preserves the last transaction seen and carries it forward to subsequent
+        /// transaction items.
         /// </summary>
-        /// <param name="activity">Activity to include in the parameter list.</param>
-        /// <returns>Enumeration of key/value pairs containing the parameters necessary for this request.</returns>
-        private IEnumerable<KeyValuePair<string, string>> BuildParameterList(IMeasurementActivity activity)
+        /// <param name="activity">Current activity being tracked.</param>
+        private void CarryForwardLastTransaction(IMeasurementActivity activity)
         {
-            return GetParameters()
-                .Concat(GetParameters(environment))
-                .Concat(GetParameters(configuration))
-                .Concat(GetParameters(sessionManager))
-                .Concat(activityTracker.GetActivityParameters(activity))
-                .ToList();
-        }
+            if (activity is TransactionActivity)
+                lastTransaction = (TransactionActivity) activity;
 
-        /// <summary>
-        /// Create a query for all the parameters in the key/value pairs applying necessary encoding.
-        /// </summary>
-        /// <param name="parameters">Parameters to combine into a query string.</param>
-        /// <returns>Encoded query string of parameters.</returns>
-        private static string CreateQueryString(IEnumerable<KeyValuePair<string, string>> parameters)
-        {
-            if (parameters == null) throw new ArgumentNullException("parameters");
-            var normalized = parameters
-                .GroupBy(p => p.Key)
-                .Select(p => new { p.Key, Value = String.Join("", p.Select(r => r.Value)) })
-                .ToArray();
-
-            return String.Join("&", normalized.Select(p => p.Key + "=" + Uri.EscapeDataString(p.Value)));
-        }
-
-        /// <summary>
-        /// Get parameters for this tracker's internal state.
-        /// </summary>
-        /// <returns>Enumerable of key/value pairs containing parameters for this tracker's internal state.</returns>
-        private static IEnumerable<KeyValuePair<string, string>> GetParameters()
-        {
-            yield return KeyValuePair.Create("v", ProtocolVersion);
-            yield return KeyValuePair.Create("z", random.Next().ToString(CultureInfo.InvariantCulture));
-            yield return KeyValuePair.Create("ht", EpochTime.Now.ToString());
-        }
-
-        /// <summary>
-        /// Get parameters for a given environment.
-        /// </summary>
-        /// <param name="environment">Environment to obtain parameters from.</param>
-        /// <returns>Enumerable of key/value pairs containing parameters for this environment.</returns>
-        internal static IEnumerable<KeyValuePair<string, string>> GetParameters(IEnvironment environment)
-        {
-            yield return KeyValuePair.Create("ul", environment.LanguageCode.ToLowerInvariant());
-            yield return KeyValuePair.Create("de", environment.CharacterSet == null ? "-" : environment.CharacterSet.ToUpperInvariant());
-
-            if (!String.IsNullOrWhiteSpace(environment.FlashVersion))
-                yield return KeyValuePair.Create("fl", environment.FlashVersion);
-
-            yield return KeyValuePair.Create("je", environment.JavaEnabled == true ? "1" : "0");
-
-            if (environment.ScreenColorDepth > 0)
-                yield return KeyValuePair.Create("sd", String.Format("{0}-bit", environment.ScreenColorDepth));
-
-            if (environment.ScreenHeight != 0 && environment.ScreenWidth != 0)
-                yield return KeyValuePair.Create("sr", string.Format(ResolutionFormat, environment.ScreenWidth, environment.ScreenHeight));
-
-            if (environment.ViewportHeight != 0 && environment.ViewportWidth != 0)
-                yield return KeyValuePair.Create("vp", string.Format(ResolutionFormat, environment.ViewportWidth, environment.ViewportHeight));
-        }
-
-        /// <summary>
-        /// Get parameters for a given configuration.
-        /// </summary>
-        /// <param name="configuration">Configuration to obtain parameters from.</param>
-        /// <returns>Enumerable of key/value pairs containing parameters for this configuration.</returns>
-        internal static IEnumerable<KeyValuePair<string, string>> GetParameters(MeasurementConfiguration configuration)
-        {
-            yield return KeyValuePair.Create("tid", configuration.AccountId);
-            yield return KeyValuePair.Create("an", configuration.ApplicationName);
-            yield return KeyValuePair.Create("av", configuration.ApplicationVersion);
-
-            if (configuration.AnonymizeIp)
-                yield return KeyValuePair.Create("aip", "1");
-        }
-
-        /// <summary>
-        /// Get parameters for a given session manager and domain hash.
-        /// </summary>
-        /// <param name="sessionManager">Session manager to obtain parameters from.</param>
-        /// <returns>Enumerable of key/value pairs of session information.</returns>
-        internal static IEnumerable<KeyValuePair<string, string>> GetParameters(SessionManager sessionManager)
-        {
-            yield return KeyValuePair.Create("cid", sessionManager.Visitor.Id.ToString());
-            if (sessionManager.Session.HitCount == 1)
-                yield return KeyValuePair.Create("sc", "start");
+            if (activity is TransactionItemActivity)
+                ((TransactionItemActivity) activity).Transaction = lastTransaction;
         }
     }
 }

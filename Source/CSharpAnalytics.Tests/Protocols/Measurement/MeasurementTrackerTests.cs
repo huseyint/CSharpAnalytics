@@ -1,4 +1,7 @@
-﻿using System.Linq;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using CSharpAnalytics.Activities;
 using CSharpAnalytics.Protocols.Measurement;
 using CSharpAnalytics.Sessions;
 #if WINDOWS_STORE
@@ -13,59 +16,84 @@ namespace CSharpAnalytics.Test.Protocols.Measurement
     public class MeasurementTrackerTests
     {
         [TestMethod]
-        public void MeasurementTracker_GetParameters_For_Configuration_Returns_Correct_Keys()
+        public void MeasurementTracker_Track_Hits_Session()
         {
-            var configuration = new MeasurementConfiguration("UA-1234-5", "AppName", "1.2.3.4");
+            var actual = new List<Uri>();
+            var sessionManager = MeasurementTestHelpers.CreateSessionManager();
+            var tracker = new MeasurementTracker(MeasurementTestHelpers.Configuration, sessionManager, MeasurementTestHelpers.CreateEnvironment(), actual.Add);
 
-            var keys = MeasurementTracker.GetParameters(configuration).Select(k => k.Key).ToArray();
+            tracker.Track(new MeasurementActivityEntry(new AppViewActivity("Testing")));
 
-            CollectionAssert.AreEquivalent(new[] { "tid", "an", "av", "aip" }, keys);
+            Assert.AreEqual(1, sessionManager.Session.HitCount);
         }
 
         [TestMethod]
-        public void MeasurementTracker_GetParameters_For_Configuration_Returns_No_Aip_Value_When_False()
+        public void MeasurementTracker_Track_Ends_Session()
         {
-            var configuration = new MeasurementConfiguration("UA-1234-5", "AppName", "1.2.3.4") { AnonymizeIp = false };
+            var actual = new List<Uri>();
+            var sessionManager = MeasurementTestHelpers.CreateSessionManager();
+            var tracker = new MeasurementTracker(MeasurementTestHelpers.Configuration, sessionManager, MeasurementTestHelpers.CreateEnvironment(), actual.Add);
 
-            var keys = MeasurementTracker.GetParameters(configuration).Select(k => k.Key).ToArray();
+            tracker.Track(new MeasurementActivityEntry(new AppViewActivity("Testing")) { EndSession = true });
 
-            CollectionAssert.DoesNotContain(keys, "aip");
+            Assert.AreEqual(SessionStatus.Ending, sessionManager.SessionStatus);
+            StringAssert.Contains(actual.Last().OriginalString, "sc=end");
         }
 
         [TestMethod]
-        public void MeasurementTracker_GetParameters_For_Environment_Returns_Correct_Values()
+        public void MeasurementTracker_Track_Sends_Request()
         {
-            var environment = new Environment("en-gb")
-                {
-                    CharacterSet = "ISO-8550-1",
-                    FlashVersion = "11.0.1b",
-                    ScreenColorDepth = 32,
-                    JavaEnabled = true,
-                    ScreenHeight = 1050,
-                    ScreenWidth = 1920,
-                    ViewportHeight = 768,
-                    ViewportWidth = 1024
-                };
+            var actual = new List<Uri>();
+            var tracker = new MeasurementTracker(MeasurementTestHelpers.Configuration, MeasurementTestHelpers.CreateSessionManager(), MeasurementTestHelpers.CreateEnvironment(), actual.Add);
 
-            var parameters = MeasurementTracker.GetParameters(environment).ToDictionary(k => k.Key, v => v.Value);
+            tracker.Track(new MeasurementActivityEntry(new AppViewActivity("Testing")));
 
-            Assert.AreEqual("ISO-8550-1", parameters["de"]);
-            Assert.AreEqual("en-gb", parameters["ul"]);
-            Assert.AreEqual("11.0.1b", parameters["fl"]);
-            Assert.AreEqual("32-bit", parameters["sd"]);
-            Assert.AreEqual("1", parameters["je"]);
-            Assert.AreEqual("1024x768", parameters["vp"]);
-            Assert.AreEqual("1920x1050", parameters["sr"]);
+            Assert.AreEqual(1, actual.Count);
         }
 
         [TestMethod]
-        public void MeasurementTracker_GetParameters_For_Environment_Returns_Correct_Je_Value()
+        public void MeasurementTracker_Track_Does_Not_Send_Request_When_Opted_Out()
         {
-            var environment = new Environment("en-gb") { JavaEnabled = false };
+            var actual = new List<Uri>();
+            var sessionManager = MeasurementTestHelpers.CreateSessionManager();
+            var tracker = new MeasurementTracker(MeasurementTestHelpers.Configuration, sessionManager, MeasurementTestHelpers.CreateEnvironment(), actual.Add);
 
-            var jeValue = MeasurementTracker.GetParameters(environment).First(f => f.Key == "je").Value;
+            sessionManager.VisitorStatus = VisitorStatus.OptedOut;
+            tracker.Track(new MeasurementActivityEntry(new AppViewActivity("Testing")));
 
-            Assert.AreEqual("0", jeValue);
+            Assert.AreEqual(0, actual.Count);
+        }
+
+        [TestMethod]
+        public void MeasurementTracker_Track_Does_Not_Buffer_While_Opted_Out()
+        {
+            var actual = new List<Uri>();
+            var sessionManager = MeasurementTestHelpers.CreateSessionManager();
+            var tracker = new MeasurementTracker(MeasurementTestHelpers.Configuration, sessionManager, MeasurementTestHelpers.CreateEnvironment(), actual.Add);
+
+            sessionManager.VisitorStatus = VisitorStatus.OptedOut;
+            tracker.Track(new MeasurementActivityEntry(new AppViewActivity("OptedOut")));
+            sessionManager.VisitorStatus = VisitorStatus.Active;
+            tracker.Track(new MeasurementActivityEntry(new AppViewActivity("OptedIn")));
+
+            Assert.AreEqual(1, actual.Count);
+            StringAssert.Contains(actual[0].OriginalString, "cd=OptedIn");
+        }
+
+        [TestMethod]
+        public void MeasurementTracker_Track_Carries_Forward_Last_Transaction()
+        {
+            var actual = new List<Uri>();
+            var tracker = new MeasurementTracker(MeasurementTestHelpers.Configuration, MeasurementTestHelpers.CreateSessionManager(), MeasurementTestHelpers.CreateEnvironment(), actual.Add);
+
+            var transaction = new TransactionActivity { OrderId = "123", Currency = "GBP" };
+            tracker.Track(new MeasurementActivityEntry(transaction));
+
+            var transactionItem = new TransactionItemActivity("ABC", "Unit Test", 1.23m, 4);
+            tracker.Track(new MeasurementActivityEntry(transactionItem));
+
+            Assert.AreEqual(transaction, transactionItem.Transaction);
+            StringAssert.Contains(actual.Last().OriginalString, "ti=123");
         }
     }
 }

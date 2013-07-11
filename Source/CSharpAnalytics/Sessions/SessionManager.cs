@@ -6,26 +6,27 @@ using System;
 
 namespace CSharpAnalytics.Sessions
 {
+    public enum SessionStatus { Starting, Active, Ending };
+    public enum VisitorStatus { Active, OptedOut };
+
     /// <summary>
     /// Manages visitors and sessions to ensure they are correctly saved, restored and time-out as appropriate.
     /// </summary>
     public class SessionManager
     {
-        private readonly object newSessionLock = new object();
-        private readonly TimeSpan timeout;
         private readonly Visitor visitor;
-        private DateTimeOffset lastActivityAt = DateTimeOffset.Now;
+
+        protected DateTimeOffset lastActivityAt = DateTimeOffset.Now;
+        protected readonly object newSessionLock = new object();
 
         /// <summary>
         /// Recreate a SessionManager from state.
         /// </summary>
         /// <param name="timeout">How long before a session will expire if no activity is seen.</param>
-        /// <param name="sessionState">SessionState containing details captured from a previous SessionManager.</param>
+        /// <param name="sessionState">SessionState containing details captured from a previous SessionManager or null if no previous SessionManager.</param>
         /// <returns>Recreated SessionManager.</returns>
-        public SessionManager(TimeSpan timeout, SessionState sessionState)
+        public SessionManager(SessionState sessionState)
         {
-            this.timeout = timeout;
-
             if (sessionState != null)
             {
                 visitor = new Visitor(sessionState.VisitorId, sessionState.FirstVisitAt);
@@ -33,12 +34,16 @@ namespace CSharpAnalytics.Sessions
                 Referrer = sessionState.Referrer;
                 PreviousSessionStartedAt = sessionState.PreviousSessionStartedAt;
                 lastActivityAt = sessionState.LastActivityAt;
+                SessionStatus = sessionState.SessionStatus;
+                VisitorStatus = sessionState.VisitorStatus;
             }
             else
             {
                 visitor = new Visitor();
                 Session = new Session();
                 PreviousSessionStartedAt = Session.StartedAt;
+                SessionStatus = SessionStatus.Starting;
+                VisitorStatus = VisitorStatus.Active;
             }
         }
 
@@ -48,18 +53,23 @@ namespace CSharpAnalytics.Sessions
         /// </summary>
         public void StartNewSession()
         {
-            StartNewSession(DateTimeOffset.Now);   
+            StartNewSession(DateTimeOffset.Now);
         }
+
+        /// <summary>
+        /// Current status of this session.
+        /// </summary>
+        public SessionStatus SessionStatus { get; private set; }
+
+        /// <summary>
+        /// Current status of this visitor.
+        /// </summary>
+        public VisitorStatus VisitorStatus { get; internal set; }
 
         /// <summary>
         /// Current session.
         /// </summary>
         public Session Session { get; private set; }
-
-        /// <summary>
-        /// How long before a session will expire if no activity is seen.
-        /// </summary>
-        public TimeSpan Timeout { get { return timeout; } }
 
         /// <summary>
         /// Visitor.
@@ -82,72 +92,69 @@ namespace CSharpAnalytics.Sessions
         /// <returns>SessionState representing the current state of the SessionManager.</returns>
         public SessionState GetState()
         {
-            return new SessionState {
+            return new SessionState
+            {
                 FirstVisitAt = Visitor.FirstVisitAt,
-                VisitorId = Visitor.Id,
+                VisitorId = Visitor.ClientId,
                 SessionStartedAt = Session.StartedAt,
                 SessionHitCount = Session.HitCount,
                 HitId = Session.HitId,
                 SessionNumber = Session.Number,
                 PreviousSessionStartedAt = PreviousSessionStartedAt,
                 LastActivityAt = lastActivityAt,
-                Referrer = Referrer
+                Referrer = Referrer,
+                SessionStatus = SessionStatus,
+                VisitorStatus = VisitorStatus
             };
         }
 
         /// <summary>
         /// Record a hit to this session to ensure counts and timeouts are honoured.
         /// </summary>
-        internal void Hit()
+        internal virtual void Hit()
         {
-            var now = DateTimeOffset.Now;
+            lastActivityAt = DateTimeOffset.Now;
 
-            StartNewSessionIfTimedOut(now);
-
-            if (now > lastActivityAt)
-                lastActivityAt = now;
+            MoveToNextSessionStatus();
 
             Session.IncreaseHitCount();
         }
 
         /// <summary>
-        /// Starts are new session if the previous one has expired.
+        /// Move to the next session status, e.g. Ending to Starting, Starting to Active.
         /// </summary>
-        /// <param name="activityStartedAt">When this hit activity started.</param>
-        private void StartNewSessionIfTimedOut(DateTimeOffset activityStartedAt)
+        private void MoveToNextSessionStatus()
         {
-            // Two threads could trigger activities back to back after a session ends, e.g. restarting the app
-            // after some time spent suspended.  Only let one of them cause a new session to be started.
-            while (TimeSinceLastActivity(activityStartedAt) > timeout)
+            switch (SessionStatus)
             {
-                lock (newSessionLock)
-                {
-                    if (TimeSinceLastActivity(activityStartedAt) > timeout)
-                        StartNewSession(activityStartedAt);
-                    lastActivityAt = activityStartedAt;
-                }
+                case SessionStatus.Ending:
+                    SessionStatus = SessionStatus.Starting;
+                    break;
+                case SessionStatus.Starting:
+                    SessionStatus = SessionStatus.Active;
+                    break;
             }
         }
 
         /// <summary>
-        /// Calculate the elapsed time since the last activity.
+        /// End the current session.
         /// </summary>
-        /// <param name="nextActivityTime">Next activity start time.</param>
-        /// <returns>Elapsed time since the last activity.</returns>
-        private TimeSpan TimeSinceLastActivity(DateTimeOffset nextActivityTime)
+        internal void End()
         {
-            return nextActivityTime - lastActivityAt;
+            SessionStatus = SessionStatus.Ending;
         }
 
         /// <summary>
-        /// Start a new session for this Visitor.
+        /// Start a new session.
         /// </summary>
-        /// <param name="startedAt">When this session started at.</param>
-        private void StartNewSession(DateTimeOffset startedAt)
+        /// <param name="startedAt">When this session started.</param>
+        protected void StartNewSession(DateTimeOffset startedAt)
         {
-            lock (newSessionLock) {
+            lock (newSessionLock)
+            {
                 PreviousSessionStartedAt = Session.StartedAt;
                 Session = new Session(startedAt, Session.Number + 1);
+                SessionStatus = SessionStatus.Starting;
             }
         }
     }
