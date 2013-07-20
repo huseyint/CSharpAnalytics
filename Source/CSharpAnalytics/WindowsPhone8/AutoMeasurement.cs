@@ -2,89 +2,154 @@
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. 
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
+using CSharpAnalytics.Activities;
+using CSharpAnalytics.Network;
 using CSharpAnalytics.Protocols;
 using CSharpAnalytics.Protocols.Measurement;
 using CSharpAnalytics.Sessions;
-using CSharpAnalytics.WindowsPhone8;
 using Microsoft.Phone.Controls;
+using Microsoft.Phone.Info;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Reflection;
 using System.Threading.Tasks;
-using System.Windows;
 using System.Windows.Navigation;
+using Windows.ApplicationModel;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
+using Windows.System;
+using Windows.UI.Xaml;
+using Windows.UI.Xaml.Controls;
+using Windows.UI.Xaml.Navigation;
 
 namespace CSharpAnalytics.WindowsStore
 {
     /// <summary>
     /// Helper class to get up and running with CSharpAnalytics in WindowsStore applications.
-    /// Either use as-is by calling StartAsync and StopAsync from your App.xaml.cs or use as a
+    /// Either use as-is by calling StartAsync, Attach and StopAsync from your App.xaml.cs or use as a
     /// starting point to wire up your own way.
     /// </summary>
     public static class AutoMeasurement
     {
+        private const string ApplicationLifecycleEvent = "ApplicationLifecycle";
         private const string RequestQueueFileName = "CSharpAnalytics-MeasurementQueue";
         private const string SessionStateFileName = "CSharpAnalytics-MeasurementSession";
+        private const int MaximumRequestsToPersist = 60;
 
+        private static readonly MeasurementAnalyticsClient client = new MeasurementAnalyticsClient();
         private static readonly ProtocolDebugger protocolDebugger = new ProtocolDebugger(s => Debug.WriteLine(s), MeasurementParameterDefinitions.All);
-        private static readonly EventHandler<ApplicationUnhandledExceptionEventArgs> unhandledApplicationException = (sender, e) => TrackException(e.ExceptionObject, !e.Handled);
-        private static readonly EventHandler<UnobservedTaskExceptionEventArgs> unobservedTaskException = (sender, e) => TrackException(e.Exception, !e.Observed);
         private static readonly TypedEventHandler<DataTransferManager, TargetApplicationChosenEventArgs> socialShare = (sender, e) => Client.TrackSocial("ShareCharm", e.ApplicationName);
+        private static readonly ProductInfoHeaderValue userAgentCSharpAnalytics = new ProductInfoHeaderValue("CSharpAnalytics", "0.1");
 
-        private static SessionManager sessionManager;
-        private static PhoneApplicationFrame attachedFrame;
         private static DataTransferManager attachedDataTransferManager;
-
-        public static MeasurementAnalyticsClient Client { get; private set; }
+        private static PhoneApplicationFrame attachedFrame;
+        private static bool? delayedOptOut;
+        private static TimeSpan lastUploadInterval;
+        private static BackgroundHttpRequester requester;
+        private static SessionManager sessionManager;
+        private static string windowsUserAgent;
 
         /// <summary>
-        /// Start CSharpAnalytics by restoring the session state, starting the background sender,
-        /// hooking up events to track and firing the application start event and home page view to analytics.
-        /// Call this just before Window.Current.Activate() in your App.OnLaunched method.
+        /// Access to the MeasurementAnalyticsClient necessary to send additional events.
         /// </summary>
-        /// <param name="frame">PhoneApplicationFrame should be RootFrame passed from App.</param>
+        public static MeasurementAnalyticsClient Client { get { return client; } }
+
+        /// <summary>
+        /// Initialize CSharpAnalytics by restoring the session state and starting the background sender and tracking
+        /// the application lifecycle start event.
+        /// </summary>
         /// <param name="configuration">Configuration to use, must at a minimum specify your Google Analytics ID and app name.</param>
         /// <param name="uploadInterval">How often to upload to the server. Lower times = more traffic but realtime. Defaults to 5 seconds.</param>
-        /// <returns>A Task that will complete once CSharpAnalytics is available.</returns>
-        /// <example>await AutoAnalytics.StartAsync(new Configuration("UA-123123123-1", "myapp.someco.com"));</example>
-        public static async Task StartAsync(PhoneApplicationFrame frame, MeasurementConfiguration configuration, TimeSpan? uploadInterval = null)
+        /// <example>var analyticsTask = AutoMeasurement.StartAsync(new MeasurementConfiguration("UA-123123123-1", "MyApp", "1.0.0.0"));</example>
+        public static async Task StartAsync(MeasurementConfiguration configuration, TimeSpan? uploadInterval = null)
         {
-            attachedFrame = frame;
+            lastUploadInterval = uploadInterval ?? TimeSpan.FromSeconds(5);
+            await CacheWindowsUserAgent();
+            await StartRequesterAsync();
 
-            Debug.Assert(Client == null);
-            if (Client != null) return;
+            var sessionState = await LoadSessionState();
+            sessionManager = new SessionManager(sessionState);
+            if (delayedOptOut != null) SetOptOut(delayedOptOut.Value);
 
-            await StartRequesterAsync(uploadInterval ?? TimeSpan.FromSeconds(5));
-            await RestoreSessionAsync(TimeSpan.FromMinutes(20));
-
-            Client = new MeasurementAnalyticsClient(configuration, sessionManager, new WindowsPhone8Environment(), s => Debug.WriteLine(s));
-            Client.TrackEvent("Start", "ApplicationLifecycle");
-            Client.TrackAppView("Home");
+            Client.Configure(configuration, sessionManager, new WindowsStoreEnvironment(), requester.Add);
+            Client.TrackEvent("Start", ApplicationLifecycleEvent);
 
             HookEvents();
         }
 
         /// <summary>
-        /// Stop CSharpAnalytics by firing the analytics event, unhooking events and saving the session
-        /// state and pending queue.
-        /// Call this in your App.OnSuspending just before deferral.Complete(); 
+        /// Opt the user in or out of analytics for this application install.
         /// </summary>
-        /// <returns>A Task that will complete once CSharpAnalytics is available.</returns>
-        /// <remarks>await AutoAnalytics.StopAsync();</remarks>
-        public static async Task StopAsync()
+        /// <param name="optOut">True if the user is opting out, false if they are opting back in.</param>
+        /// <remarks>
+        /// This option persists automatically.
+        /// You should call this only when the user changes their decision.
+        /// </remarks>
+        public static async void SetOptOut(bool optOut)
         {
-            Debug.Assert(Client != null);
-            if (Client == null) return;
+            if (sessionManager == null)
+            {
+                delayedOptOut = optOut;
+                return;
+            }
 
-            Client.TrackEvent("Stop", "ApplicationLifecycle");
-            UnhookEvents();
+            delayedOptOut = null;
 
-            await SuspendRequesterAsync();
-            await SaveSessionAsync();
+            if (optOut && sessionManager.VisitorStatus == VisitorStatus.Active)
+            {
+                sessionManager.VisitorStatus = VisitorStatus.OptedOut;
+                await SuspendRequesterAsync();
+            }
 
-            Client = null;
+            if (!optOut && sessionManager.VisitorStatus == VisitorStatus.OptedOut)
+            {
+                sessionManager.VisitorStatus = VisitorStatus.Active;
+                if (!requester.IsStarted)
+                    requester.Start(lastUploadInterval);
+
+                await SaveSessionState(sessionManager.GetState());
+            }
+        }
+
+        /// <summary>
+        /// Attach to the root frame, hook into the navigation event and track initial page appview.
+        /// Call this just before Window.Current.Activate() in your App.OnLaunched method.
+        /// </summary>
+        public static void Attach(PhoneApplicationFrame frame)
+        {
+            if (frame == null)
+                throw new ArgumentNullException("frame");
+
+            if (frame != attachedFrame)
+            {
+                if (attachedFrame != null)
+                    attachedFrame.Navigated -= FrameNavigated;
+                frame.Navigated += FrameNavigated;
+                attachedFrame = frame;
+            }
+
+            var content = frame.Content;
+            if (content != null)
+                TrackFrameNavigate(content.GetType());
+        }
+
+        /// <summary>
+        /// Internal status of this visitor.
+        /// </summary>
+        internal static VisitorStatus VisitorStatus
+        {
+            get
+            {
+                // Allow AnalyticsUserOption to function at design time.
+                if (sessionManager == null)
+                    return delayedOptOut == true ? VisitorStatus.OptedOut : VisitorStatus.Active;
+
+                return sessionManager.VisitorStatus;
+            }
         }
 
         /// <summary>
@@ -94,26 +159,52 @@ namespace CSharpAnalytics.WindowsStore
         private static void HookEvents()
         {
             var application = Application.Current;
-            application.UnhandledException += unhandledApplicationException;
-            TaskScheduler.UnobservedTaskException += unobservedTaskException;
-
-            attachedFrame.Navigated += FrameNavigated;
+            application.Resuming += ApplicationOnResuming;
+            application.Suspending += ApplicationOnSuspending;
 
             attachedDataTransferManager = DataTransferManager.GetForCurrentView();
             attachedDataTransferManager.TargetApplicationChosen += socialShare;
         }
 
         /// <summary>
+        /// Handle application resuming from suspend without shutdown.
+        /// </summary>
+        /// <param name="sender">Sender of the event.</param>
+        /// <param name="o">Undocumented event parameter that is null.</param>
+        private static async void ApplicationOnResuming(object sender, object o)
+        {
+            await StartRequesterAsync();
+            Client.TrackEvent("Resume", ApplicationLifecycleEvent);
+        }
+
+        /// <summary>
+        /// Handle application suspending.
+        /// </summary>
+        /// <param name="sender">Sender of the event.</param>
+        /// <param name="suspendingEventArgs">Details about the suspending event.</param>
+        private static async void ApplicationOnSuspending(object sender, SuspendingEventArgs suspendingEventArgs)
+        {
+            var deferral = suspendingEventArgs.SuspendingOperation.GetDeferral();
+            Client.Track(new EventActivity("Suspend", ApplicationLifecycleEvent), true); // Stop the session
+            await SuspendRequesterAsync();
+            deferral.Complete();
+        }
+
+        /// <summary>
         /// Unhook events that were wired up in HookEvents.
         /// </summary>
+        /// <remarks>
+        /// Not actually used in AutoMeasurement but here to show you what to do if you wanted to.
+        /// </remarks>
         private static void UnhookEvents()
         {
             var application = Application.Current;
-            application.UnhandledException -= unhandledApplicationException;
-            TaskScheduler.UnobservedTaskException -= unobservedTaskException;
+            application.Resuming -= ApplicationOnResuming;
+            application.Suspending -= ApplicationOnSuspending;
 
             if (attachedFrame != null)
                 attachedFrame.Navigated -= FrameNavigated;
+            attachedFrame = null;
 
             attachedDataTransferManager.TargetApplicationChosen -= socialShare;
         }
@@ -129,20 +220,47 @@ namespace CSharpAnalytics.WindowsStore
         /// <param name="e">NavigationEventArgs for the event.</param>
         private static void FrameNavigated(object sender, NavigationEventArgs e)
         {
-            if (e.Content is ITrackPageView) return;
-            Client.TrackAppView(e.Uri.AbsoluteUri);
+            TrackFrameNavigate(e.Content.GetType());
+        }
+
+        /// <summary>
+        /// Track an app view if it does not track itself.
+        /// </summary>
+        /// <param name="page">Page to track in analytics.</param>
+        private static void TrackFrameNavigate(Type page)
+        {
+            if (typeof(ITrackOwnView).GetTypeInfo().IsAssignableFrom(page.GetTypeInfo())) return;
+
+            var screenName = GetScreenName(page);
+            Client.TrackAppView(screenName);
+        }
+
+        /// <summary>
+        /// Determine the screen name of a page to track.
+        /// </summary>
+        /// <param name="page">Page within the application to track.</param>
+        /// <returns>String for the screen name in analytics.</returns>
+        private static string GetScreenName(Type page)
+        {
+            var screenNameAttribute = page.GetTypeInfo().GetCustomAttribute(typeof(AnalyticsScreenNameAttribute)) as AnalyticsScreenNameAttribute;
+            if (screenNameAttribute != null)
+                return screenNameAttribute.ScreenName;
+
+            var screenName = page.Name;
+            if (screenName.EndsWith("Page"))
+                screenName = screenName.Substring(0, screenName.Length - 4);
+            return screenName;
         }
 
         /// <summary>
         /// Start the requester with any unsent URIs from the last application run.
         /// </summary>
-        /// <param name="uploadInterval">How often to send URIs to analytics.</param>
         /// <returns>Task that completes when the requester is ready.</returns>
-        private static async Task StartRequesterAsync(TimeSpan uploadInterval)
+        private static async Task StartRequesterAsync()
         {
-            //requester = new BackgroundHttpRequester(PreprocessHttpRequest);
-            //var previousRequests = await LocalFolderContractSerializer<List<Uri>>.RestoreAsync(RequestQueueFileName);
-            //requester.Start(uploadInterval, previousRequests);
+            requester = new BackgroundHttpClientRequester(PreprocessHttpRequest);
+            var previousRequests = await LocalFolderContractSerializer<List<Uri>>.RestoreAsync(RequestQueueFileName);
+            requester.Start(lastUploadInterval, previousRequests);
         }
 
         /// <summary>
@@ -154,38 +272,70 @@ namespace CSharpAnalytics.WindowsStore
         /// Because user agent is not persisted unsent URIs that are saved and then sent after an upgrade
         /// will have the new user agent string not the actual one that generated them.
         /// </remarks>
-        //private static void PreprocessHttpRequest(HttpRequestMessage requestMessage)
-        //{
-        //    AddUserAgent(requestMessage.Headers.UserAgent);
-        //    DebugRequest(requestMessage);
-        //}
+        private static void PreprocessHttpRequest(HttpRequestMessage requestMessage)
+        {
+            requestMessage.RequestUri = client.AdjustUriBeforeRequest(requestMessage.RequestUri);
+            AddUserAgent(requestMessage.Headers.UserAgent);
+            DebugRequest(requestMessage);
+        }
 
         /// <summary>
         /// Figure out the user agent and add it to the header collection.
         /// </summary>
         /// <param name="userAgent">User agent header collection.</param>
-        //private static void AddUserAgent(ICollection<ProductInfoHeaderValue> userAgent)
-        //{
-        //    userAgent.Add(new ProductInfoHeaderValue("CSharpAnalytics", "0.1"));
+        private static void AddUserAgent(ICollection<ProductInfoHeaderValue> userAgent)
+        {
+            userAgent.Add(userAgentCSharpAnalytics);
 
-        //    var agentParts = new[] {
-        //        "Windows NT " + SystemInformation.GetWindowsVersionAsync().Result,
-        //        GetProcessorArchitectureAsync().Result
-        //    };
+            if (!String.IsNullOrEmpty(windowsUserAgent))
+                userAgent.Add(new ProductInfoHeaderValue(windowsUserAgent));
+        }
 
-        //    userAgent.Add(new ProductInfoHeaderValue("(" + String.Join("; ", agentParts) + ")"));
-        //}
+        /// <summary>
+        /// Get the Windows version number and processor architecture and cache it
+        /// as a user agent string so it can be sent with HTTP requests.
+        /// </summary>
+        /// <returns>String containing formatted Windows user agent.</returns>
+        private static void CacheUserAgent()
+        {
+            var deviceArgs = new [] { "Windows Phone " + System.Environment.OSVersion.Version. , DeviceStatus.DeviceManufacturer, DeviceStatus.DeviceName }
+                .Where(d => !String.IsNullOrWhiteSpace(d));
+
+            windowsUserAgent = string.Join("; ", deviceArgs);
+        }
+
+        /// <summary>
+        /// Determine the current processor architecture string for the user agent.
+        /// </summary>
+        /// <remarks>
+        /// The strings this returns should be compatible with web browser user agent
+        /// processor strings.
+        /// </remarks>
+        /// <returns>String containing the processor architecture.</returns>
+        private static string GetProcessorArchitectureAsync()
+        {
+            switch (System.Environment.OSVersion.Platform)
+            {
+                    case PlatformID.
+                case ProcessorArchitecture.X64:
+                    return "x64";
+                case ProcessorArchitecture.Arm:
+                    return "ARM";
+                default:
+                    return "";
+            }
+        }
 
         /// <summary>
         /// Send the HttpRequestMessage with the protocol debugger for examination.
         /// </summary>
         /// <param name="requestMessage">HttpRequestMessage to examine with the protocol debugger.</param>
-        //[Conditional("DEBUG")]
-        //private async static void DebugRequest(HttpRequestMessage requestMessage)
-        //{
-        //    var payloadUri = await RejoinPayload(requestMessage);
-        //    protocolDebugger.Examine(payloadUri);
-        //}
+        [Conditional("DEBUG")]
+        private async static void DebugRequest(HttpRequestMessage requestMessage)
+        {
+            var payloadUri = await RejoinPayload(requestMessage);
+            protocolDebugger.Examine(payloadUri);
+        }
 
         /// <summary>
         /// Rejoin the POST body payload with the Uri parameter if necessary so it can be sent to the
@@ -193,13 +343,14 @@ namespace CSharpAnalytics.WindowsStore
         /// </summary>
         /// <param name="requestMessage">HttpRequestMessage to obtain complete payload for.</param>
         /// <returns>Uri with final payload to be sent.</returns>
-        //private async static Task<Uri> RejoinPayload(HttpRequestMessage requestMessage)
-        //{
-        //    if (requestMessage.Content == null) return requestMessage.RequestUri;
+        private async static Task<Uri> RejoinPayload(HttpRequestMessage requestMessage)
+        {
+            if (requestMessage.Content == null)
+                return requestMessage.RequestUri;
 
-        //    var bodyPayload = await requestMessage.Content.ReadAsStringAsync();
-        //    return new UriBuilder(requestMessage.RequestUri) { Query = bodyPayload }.Uri;
-        //}
+            var bodyPayload = await requestMessage.Content.ReadAsStringAsync();
+            return new UriBuilder(requestMessage.RequestUri) { Query = bodyPayload }.Uri;
+        }
 
         /// <summary>
         /// Suspend the requester and preserve any unsent URIs.
@@ -207,60 +358,32 @@ namespace CSharpAnalytics.WindowsStore
         /// <returns>Task that completes when the requester has been suspended.</returns>
         private static async Task SuspendRequesterAsync()
         {
-            //var pendingRequests = await requester.StopAsync();
-            //await LocalFolderContractSerializer<List<Uri>>.SaveAsync(pendingRequests, RequestQueueFileName);
+            var recentRequestsToPersist = new List<Uri>();
+            if (requester.IsStarted)
+            {
+                var pendingRequests = await requester.StopAsync();
+                recentRequestsToPersist = pendingRequests.Skip(pendingRequests.Count - MaximumRequestsToPersist).ToList();
+            }
+            await LocalFolderContractSerializer<List<Uri>>.SaveAsync(recentRequestsToPersist, RequestQueueFileName);
+            await SaveSessionState(sessionManager.GetState());
         }
 
         /// <summary>
-        /// Restores the session manager using saved session state or creates a brand new visitor if none exists.
+        /// Load the session state from storage if it exists, null if it does not.
         /// </summary>
-        /// <param name="sessionTimeout">How long a session can be inactive for before it ends.</param>
-        /// <returns>Task that completes when the SessionManager is ready.</returns>
-        private static async Task RestoreSessionAsync(TimeSpan sessionTimeout)
+        /// <returns>Task that completes when the SessionState is available.</returns>
+        private static async Task<SessionState> LoadSessionState()
         {
-            var sessionState = await LocalFolderContractSerializer<SessionState>.RestoreAsync(SessionStateFileName);
-            sessionManager = new SessionManager(sessionTimeout, sessionState);
+            return await LocalFolderContractSerializer<SessionState>.RestoreAsync(SessionStateFileName);
         }
 
         /// <summary>
-        /// Save the session to ensure state is preseved across application launches.
+        /// Save the session state to preserve state between application launches.
         /// </summary>
-        /// <returns>Task that completes when the session has been saved.</returns>
-        private static async Task SaveSessionAsync()
+        /// <returns>Task that completes when the session state has been saved.</returns>
+        private static async Task SaveSessionState(SessionState sessionState)
         {
-            await LocalFolderContractSerializer<SessionState>.SaveAsync(sessionManager.GetState(), SessionStateFileName);
+            await LocalFolderContractSerializer<SessionState>.SaveAsync(sessionState, SessionStateFileName);
         }
-
-        /// <summary>
-        /// Track an unhandled exception in analytics.
-        /// </summary>
-        /// <param name="ex">Exception to track in analytics.</param>
-        private static void TrackException(Exception ex, bool isFatal)
-        {
-            if (ex == null) return;
-
-            var aggregateException = ex as AggregateException;
-            if (aggregateException != null && aggregateException.InnerExceptions.Count == 1)
-                ex = aggregateException.InnerExceptions.First();
-
-            // TODO: Figure out a good compressed summary format for exceptions
-            var description = ex.Message;
-
-            // Technically another handler could fix things but no mechanism to know that
-            Client.TrackException(description, isFatal);
-        }
-    }
-
-    /// <summary>
-    /// Implement this interface on any Pages in your application where you want
-    /// to override the page titles or paths generated for that page by emitting them yourself at
-    /// the end of the page's LoadState method.
-    /// </summary>
-    /// <remarks>
-    /// This is especially useful for a page that obtains its content from a data source to
-    /// track it as seperate virtual pages.
-    /// </remarks>
-    public interface ITrackPageView
-    {
     }
 }

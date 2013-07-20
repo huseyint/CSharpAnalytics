@@ -93,6 +93,8 @@
     <Compile Include="Activities\TimedEventActivity.cs" />
     <Compile Include="Activities\TransactionActivity.cs" />
     <Compile Include="Activities\TransactionItemActivity.cs" />
+    <Compile Include="AutoMeasurement\AnalyticsScreenNameAttribute.cs" />
+    <Compile Include="AutoMeasurement\ITrackOwnView.cs" />
     <Compile Include="Environment.cs" />
     <Compile Include="IEnvironment.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
@@ -124,12 +126,12 @@
     <Compile Include="Sessions\SessionManager.cs" />
     <Compile Include="Sessions\SessionState.cs" />
     <Compile Include="Sessions\Visitor.cs" />
-    <Compile Include="WindowsPhone8\AutoMeasurement.cs" />
-    <Compile Include="WindowsPhone8\LocalFolderContractSerializer.cs" />
     <Compile Include="WindowsPhone8\WindowsPhoneEnvironment.cs" />
+    <Compile Include="AutoMeasurement\LocalFolderContractSerializer.cs" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="Network\" />
+    <Folder Include="WindowsStore\" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath)\Microsoft\$(TargetFrameworkIdentifier)\$(TargetFrameworkVersion)\Microsoft.$(TargetFrameworkIdentifier).$(TargetFrameworkVersion).Overrides.targets" />
   <Import Project="$(MSBuildExtensionsPath)\Microsoft\$(TargetFrameworkIdentifier)\$(TargetFrameworkVersion)\Microsoft.$(TargetFrameworkIdentifier).CSharp.targets" />
