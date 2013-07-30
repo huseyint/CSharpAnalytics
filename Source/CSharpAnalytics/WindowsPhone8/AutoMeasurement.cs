@@ -7,8 +7,8 @@ using CSharpAnalytics.Network;
 using CSharpAnalytics.Protocols;
 using CSharpAnalytics.Protocols.Measurement;
 using CSharpAnalytics.Sessions;
+using CSharpAnalytics.WindowsPhone8;
 using Microsoft.Phone.Controls;
-using Microsoft.Phone.Info;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -17,16 +17,13 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
 using System.Threading.Tasks;
+using System.Windows;
 using System.Windows.Navigation;
 using Windows.ApplicationModel;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
-using Windows.System;
-using Windows.UI.Xaml;
-using Windows.UI.Xaml.Controls;
-using Windows.UI.Xaml.Navigation;
 
-namespace CSharpAnalytics.WindowsStore
+namespace CSharpAnalytics
 {
     /// <summary>
     /// Helper class to get up and running with CSharpAnalytics in WindowsStore applications.
@@ -40,10 +37,10 @@ namespace CSharpAnalytics.WindowsStore
         private const string SessionStateFileName = "CSharpAnalytics-MeasurementSession";
         private const int MaximumRequestsToPersist = 60;
 
-        private static readonly MeasurementAnalyticsClient client = new MeasurementAnalyticsClient();
         private static readonly ProtocolDebugger protocolDebugger = new ProtocolDebugger(s => Debug.WriteLine(s), MeasurementParameterDefinitions.All);
         private static readonly TypedEventHandler<DataTransferManager, TargetApplicationChosenEventArgs> socialShare = (sender, e) => Client.TrackSocial("ShareCharm", e.ApplicationName);
-        private static readonly ProductInfoHeaderValue userAgentCSharpAnalytics = new ProductInfoHeaderValue("CSharpAnalytics", "0.1");
+        private static readonly MeasurementAnalyticsClient client = new MeasurementAnalyticsClient();
+        private static readonly ProductInfoHeaderValue clientUserAgent = new ProductInfoHeaderValue("CSharpAnalytics", "0.1");
 
         private static DataTransferManager attachedDataTransferManager;
         private static PhoneApplicationFrame attachedFrame;
@@ -51,7 +48,7 @@ namespace CSharpAnalytics.WindowsStore
         private static TimeSpan lastUploadInterval;
         private static BackgroundHttpRequester requester;
         private static SessionManager sessionManager;
-        private static string windowsUserAgent;
+        private static string systemUserAgent;
 
         /// <summary>
         /// Access to the MeasurementAnalyticsClient necessary to send additional events.
@@ -68,14 +65,14 @@ namespace CSharpAnalytics.WindowsStore
         public static async Task StartAsync(MeasurementConfiguration configuration, TimeSpan? uploadInterval = null)
         {
             lastUploadInterval = uploadInterval ?? TimeSpan.FromSeconds(5);
-            await CacheWindowsUserAgent();
+            CacheSystemUserAgent();
             await StartRequesterAsync();
 
             var sessionState = await LoadSessionState();
-            sessionManager = new SessionManager(sessionState);
+            sessionManager = new SessionManager(sessionState, configuration.SampleRate);
             if (delayedOptOut != null) SetOptOut(delayedOptOut.Value);
 
-            Client.Configure(configuration, sessionManager, new WindowsStoreEnvironment(), requester.Add);
+            Client.Configure(configuration, sessionManager, new WindowsPhone8Environment(), requester.Add);
             Client.TrackEvent("Start", ApplicationLifecycleEvent);
 
             HookEvents();
@@ -159,8 +156,8 @@ namespace CSharpAnalytics.WindowsStore
         private static void HookEvents()
         {
             var application = Application.Current;
-            application.Resuming += ApplicationOnResuming;
-            application.Suspending += ApplicationOnSuspending;
+            application.Startup += ApplicationOnStartup;
+            application.Exit += ApplicationOnExit;
 
             attachedDataTransferManager = DataTransferManager.GetForCurrentView();
             attachedDataTransferManager.TargetApplicationChosen += socialShare;
@@ -171,10 +168,10 @@ namespace CSharpAnalytics.WindowsStore
         /// </summary>
         /// <param name="sender">Sender of the event.</param>
         /// <param name="o">Undocumented event parameter that is null.</param>
-        private static async void ApplicationOnResuming(object sender, object o)
+        private static async void ApplicationOnStartup(object sender, StartupEventArgs e)
         {
             await StartRequesterAsync();
-            Client.TrackEvent("Resume", ApplicationLifecycleEvent);
+            Client.TrackEvent("Start", ApplicationLifecycleEvent);
         }
 
         /// <summary>
@@ -182,12 +179,10 @@ namespace CSharpAnalytics.WindowsStore
         /// </summary>
         /// <param name="sender">Sender of the event.</param>
         /// <param name="suspendingEventArgs">Details about the suspending event.</param>
-        private static async void ApplicationOnSuspending(object sender, SuspendingEventArgs suspendingEventArgs)
+        private static async void ApplicationOnExit(object sender, EventArgs e)
         {
-            var deferral = suspendingEventArgs.SuspendingOperation.GetDeferral();
-            Client.Track(new EventActivity("Suspend", ApplicationLifecycleEvent), true); // Stop the session
+            Client.Track(new EventActivity("Edit", ApplicationLifecycleEvent), true); // Stop the session
             await SuspendRequesterAsync();
-            deferral.Complete();
         }
 
         /// <summary>
@@ -199,8 +194,8 @@ namespace CSharpAnalytics.WindowsStore
         private static void UnhookEvents()
         {
             var application = Application.Current;
-            application.Resuming -= ApplicationOnResuming;
-            application.Suspending -= ApplicationOnSuspending;
+            application.Startup -= ApplicationOnStartup;
+            application.Exit -= ApplicationOnExit;
 
             if (attachedFrame != null)
                 attachedFrame.Navigated -= FrameNavigated;
@@ -282,26 +277,35 @@ namespace CSharpAnalytics.WindowsStore
         /// <summary>
         /// Figure out the user agent and add it to the header collection.
         /// </summary>
-        /// <param name="userAgent">User agent header collection.</param>
-        private static void AddUserAgent(ICollection<ProductInfoHeaderValue> userAgent)
+        /// <param name="userAgents">User agent header collection.</param>
+        private static void AddUserAgent(ICollection<ProductInfoHeaderValue> userAgents)
         {
-            userAgent.Add(userAgentCSharpAnalytics);
+            userAgents.Add(clientUserAgent);
 
-            if (!String.IsNullOrEmpty(windowsUserAgent))
-                userAgent.Add(new ProductInfoHeaderValue(windowsUserAgent));
+            if (!String.IsNullOrEmpty(systemUserAgent))
+                userAgents.Add(new ProductInfoHeaderValue(systemUserAgent));
         }
 
         /// <summary>
         /// Get the Windows version number and processor architecture and cache it
         /// as a user agent string so it can be sent with HTTP requests.
         /// </summary>
-        /// <returns>String containing formatted Windows user agent.</returns>
-        private static void CacheUserAgent()
+        /// <returns>String containing formatted system parts of the user agent.</returns>
+        private static void CacheSystemUserAgent()
         {
-            var deviceArgs = new [] { "Windows Phone " + System.Environment.OSVersion.Version. , DeviceStatus.DeviceManufacturer, DeviceStatus.DeviceName }
-                .Where(d => !String.IsNullOrWhiteSpace(d));
+            try
+            {
+                var osVersion = System.Environment.OSVersion.Version;
+                var parts = new[] {
+                    "Windows Phone " + osVersion.Major + "." + osVersion.MajorRevision,
+                    GetProcessorArchitecture()
+                };
 
-            windowsUserAgent = string.Join("; ", deviceArgs);
+                systemUserAgent = "(" + String.Join("; ", parts.Where(e => !String.IsNullOrEmpty(e))) + ")";
+            }
+            catch
+            {
+            }
         }
 
         /// <summary>
@@ -312,14 +316,13 @@ namespace CSharpAnalytics.WindowsStore
         /// processor strings.
         /// </remarks>
         /// <returns>String containing the processor architecture.</returns>
-        private static string GetProcessorArchitectureAsync()
+        private static string GetProcessorArchitecture()
         {
-            switch (System.Environment.OSVersion.Platform)
+            switch (SystemInformation.GetProcessorArchitecture())
             {
-                    case PlatformID.
-                case ProcessorArchitecture.X64:
+                case ProcessorArchitecture.AMD64:
                     return "x64";
-                case ProcessorArchitecture.Arm:
+                case ProcessorArchitecture.ARM:
                     return "ARM";
                 default:
                     return "";

@@ -3,7 +3,6 @@
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -20,10 +19,10 @@ namespace CSharpAnalytics.Network
         protected static readonly TimeSpan NetworkRetryWaitStep = TimeSpan.FromSeconds(5);
         protected static readonly TimeSpan NetworkRetryWaitMax = TimeSpan.FromMinutes(10);
 
-        private readonly ConcurrentQueue<Uri> currentRequests = new ConcurrentQueue<Uri>();
+        private readonly Queue<Uri> currentRequests = new Queue<Uri>();
 
         private CancellationTokenSource cancellationTokenSource;
-        private ConcurrentQueue<Uri> priorRequests = new ConcurrentQueue<Uri>();
+        private Queue<Uri> priorRequests = new Queue<Uri>();
         private Task backgroundSender;
         private TimeSpan currentUploadInterval;
         private Uri currentlySending;
@@ -31,7 +30,10 @@ namespace CSharpAnalytics.Network
         /// <summary>
         /// Determines whether the BackgroundHttpRequester is currently started.
         /// </summary>
-        public bool IsStarted { get { return cancellationTokenSource != null && !cancellationTokenSource.IsCancellationRequested; } }
+        public bool IsStarted
+        {
+            get { return cancellationTokenSource != null && !cancellationTokenSource.IsCancellationRequested; }
+        }
 
         /// <summary>
         /// Add a URI to be requested to the queue.
@@ -53,7 +55,7 @@ namespace CSharpAnalytics.Network
                 throw new InvalidOperationException(String.Format("Cannot start a {0} when already started", GetType().Name));
 
             if (previouslyUnrequested != null)
-                priorRequests = new ConcurrentQueue<Uri>(previouslyUnrequested);
+                priorRequests = new Queue<Uri>(previouslyUnrequested);
 
             cancellationTokenSource = new CancellationTokenSource();
             currentUploadInterval = uploadInterval;
@@ -93,10 +95,18 @@ namespace CSharpAnalytics.Network
                         // Always empty the priorRequest queue first
                         var requestQueue = priorRequests.Count > 0 ? priorRequests : currentRequests;
                         // Send all the requests we currently have
-                        while (requestQueue.TryDequeue(out currentlySending))
-                       {
-                            RequestWithFailureRetry(currentlySending);
-                            currentlySending = null;
+                        while (requestQueue.Count > 0)
+                        {
+                            try
+                            {
+                                currentlySending = requestQueue.Dequeue();
+                                RequestWithFailureRetry(currentlySending);
+                                currentlySending = null;
+                            }
+                            catch (InvalidOperationException)
+                            {
+                                // Just in case the queue is emptied because of an opt-out
+                            }
                         }
 
                         queueEmptyWait.Wait(currentUploadInterval, cancellationTokenSource.Token);

@@ -4,7 +4,6 @@ using System.Windows;
 using System.Windows.Markup;
 using System.Windows.Navigation;
 using CSharpAnalytics.Protocols.Measurement;
-using CSharpAnalytics.WindowsStore;
 using Microsoft.Phone.Controls;
 using Microsoft.Phone.Shell;
 using CSharpAnalytics.Sample.WindowsPhone8.Resources;
@@ -40,7 +39,7 @@ namespace CSharpAnalytics.Sample.WindowsPhone8
         /// </summary>
         public App()
         {
-            AutoMeasurement.StartAsync(RootFrame, new MeasurementConfiguration("UA-319000-10", "WindowsPhoneSample", "1.0.0.0"));
+//            AutoMeasurement.StartAsync(RootFrame, new MeasurementConfiguration("UA-319000-10", "WindowsPhoneSample", "1.0.0.0"));
 
             // Global handler for uncaught exceptions.
             UnhandledException += Application_UnhandledException;
