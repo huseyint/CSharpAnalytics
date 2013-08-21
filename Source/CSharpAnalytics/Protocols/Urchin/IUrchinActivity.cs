@@ -5,8 +5,8 @@
 namespace CSharpAnalytics.Protocols.Urchin
 {
     /// <summary>
-    /// Indicates that an Activity is compatible with Urchin and
-    /// can be tracked using the UrchinTracker.
+    /// Indicates that an Activity is compatible with Urchin and  can be tracked
+    /// using the UrchinAnalyticsClient.
     /// </summary>
     public interface IUrchinActivity
     {

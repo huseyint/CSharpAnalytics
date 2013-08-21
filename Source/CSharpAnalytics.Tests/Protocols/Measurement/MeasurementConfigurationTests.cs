@@ -2,6 +2,7 @@
 using CSharpAnalytics.Protocols.Measurement;
 #if WINDOWS_STORE
 using Microsoft.VisualStudio.TestPlatform.UnitTestFramework;
+using Windows.ApplicationModel;
 #else
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 #endif
@@ -28,6 +29,18 @@ namespace CSharpAnalytics.Test.Protocols.Measurement
 
             Assert.IsTrue(configuration.AnonymizeIp);
             Assert.IsFalse(configuration.UseSsl);
+            Assert.AreEqual(100.0, configuration.SampleRate);
+        }
+
+        [TestMethod]
+        public void MeasurementConfiguration_SampleRate_Property_Can_Be_Set()
+        {
+            var expected = 51.2;
+            var configuration = new MeasurementConfiguration("UA-1234-5", "ApplicationName", "1.2.3.4") {
+                SampleRate = expected
+            };
+
+            Assert.AreEqual(expected, configuration.SampleRate);
         }
 
 #if WINDOWS_STORE
@@ -43,6 +56,29 @@ namespace CSharpAnalytics.Test.Protocols.Measurement
             Assert.ThrowsException<ArgumentException>(() => new MeasurementConfiguration("UA-1234", "ApplicationName", "1.2.3.4"));
         }
 
+        [TestMethod]
+        public void MeasurementConfiguration_SampleRate_Property_Throws_ArgumentOutOfRangeException_If_Below_0()
+        {
+            var configuration = new MeasurementConfiguration("UA-1234-5", "ApplicationName", "1.2.3.4");
+            Assert.ThrowsException<ArgumentOutOfRangeException>(() => configuration.SampleRate = -0.01);
+        }
+
+        [TestMethod]
+        public void MeasurementConfiguration_SampleRate_Property_Throws_ArgumentOutOfRangeException_If_Above_100()
+        {
+            var configuration = new MeasurementConfiguration("UA-1234-5", "ApplicationName", "1.2.3.4");
+            Assert.ThrowsException<ArgumentOutOfRangeException>(() => configuration.SampleRate = 100.01);
+        }
+
+        [TestMethod]
+        public void MeasurementConfiguration_FormatVersion_Formats_Version_Correctly()
+        {
+            var version = new PackageVersion { Major = 4, Minor = 3, Build = 2, Revision = 1 };
+
+            var actual = MeasurementConfiguration.FormatVersion(version);
+
+            Assert.AreEqual("4.3.2.1", actual);
+        }
 #endif
 
 #if NET45
@@ -58,6 +94,22 @@ namespace CSharpAnalytics.Test.Protocols.Measurement
         public void MeasurementConfiguration_Constructor_Throws_ArgumentException_If_AccountID_Does_Not_Have_Two_Numeric_Parts()
         {
             var configuration = new MeasurementConfiguration("UA-1234", "ApplicationName", "1.2.3.4");
+        }
+
+        [TestMethod]
+        [ExpectedException(typeof(ArgumentOutOfRangeException))]
+        public void MeasurementConfiguration_SampleRate_Property_Throws_ArgumentOutOfRangeException_If_Below_0()
+        {
+            var configuration = new MeasurementConfiguration("UA-1234-5", "ApplicationName", "1.2.3.4");
+            configuration.SampleRate = -0.01;
+        }
+
+        [TestMethod]
+        [ExpectedException(typeof(ArgumentOutOfRangeException))]
+        public void MeasurementConfiguration_SampleRate_Property_Throws_ArgumentOutOfRangeException_If_Above_100()
+        {
+            var configuration = new MeasurementConfiguration("UA-1234-5", "ApplicationName", "1.2.3.4");
+            configuration.SampleRate = 100.01;
         }
 #endif
     }

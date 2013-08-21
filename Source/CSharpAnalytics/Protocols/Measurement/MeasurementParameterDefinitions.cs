@@ -21,7 +21,7 @@ namespace CSharpAnalytics.Protocols.Measurement
             new ParameterDefinition("v",        "Protocol Version"),
             new ParameterDefinition("tid",      "Tracking ID"),
             new ParameterDefinition("aip",      "Anonymize IP", FormatBoolean),
-            new ParameterDefinition("qt",       "Queue Time"),
+            new ParameterDefinition("qt",       "Queue Time", s => s + " ms"),
             new ParameterDefinition("z",        "Cache Buster"),
 
             // Visitor
@@ -93,7 +93,7 @@ namespace CSharpAnalytics.Protocols.Measurement
 
             // Timing
             new ParameterDefinition("utc",      "User Timing Category"),
-            new ParameterDefinition("utv",      "User Timing Variable Name"),
+            new ParameterDefinition("utv",      "User Timing Variable"),
             new ParameterDefinition("utt",      "User Timing Time"),
             new ParameterDefinition("utl",      "User Timing Label"),
 
@@ -109,12 +109,11 @@ namespace CSharpAnalytics.Protocols.Measurement
             new ParameterDefinition("exf",      "Is Exception Fatal", FormatBoolean),
 
             // Custom Dimensions / Metrics
-            new ParameterDefinition("cd[0-9]+", "Custom Dimension"),
-            new ParameterDefinition("cm[0-9]+", "Custom Metric"),
+            new ParameterDefinition("cd([0-9]+)", "Custom Dimension $1", isRegexMatch:true),
+            new ParameterDefinition("cm([0-9]+)", "Custom Metric $1", isRegexMatch:true),
 
             // Undocumented
-            new ParameterDefinition("_v",       "Library Version"),
-            new ParameterDefinition("ht",       "Hit Time", EpochTime.FormatDate)
+            new ParameterDefinition("_v",       "Library Version")
         };
 
         /// <summary>
@@ -130,6 +129,19 @@ namespace CSharpAnalytics.Protocols.Measurement
                 case "0": return "False";
                 default: return "-";
             }
+        }
+
+        /// <summary>
+        /// Format number of seconds since 1970 as formatted UTC date.
+        /// </summary>
+        /// <param name="secondsSince1970">Number of seconds since 01-Jan-1970.</param>
+        /// <returns>Formatted UTC date.</returns>
+        private static string FormatDate(string secondsSince1970)
+        {
+            EpochTime epochTime;
+            return EpochTime.TryParseSeconds(secondsSince1970, out epochTime)
+                ? epochTime.ToUtcString()
+                : string.Empty;
         }
     }
 }

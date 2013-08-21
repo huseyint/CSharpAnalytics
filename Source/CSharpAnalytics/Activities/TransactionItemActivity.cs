@@ -2,9 +2,9 @@
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. 
 // You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
-using System;
 using CSharpAnalytics.Protocols.Measurement;
 using CSharpAnalytics.Protocols.Urchin;
+using System;
 
 namespace CSharpAnalytics.Activities
 {
@@ -63,6 +63,14 @@ namespace CSharpAnalytics.Activities
         {
             get { return variation; }
         }
+
+        /// <summary>
+        /// Transaction this item is associated with.
+        /// </summary>
+        /// <remarks>
+        /// This is automatically set by analytics to the previous transaction sent.
+        /// </remarks>
+        internal TransactionActivity Transaction { get; set; }
 
         /// <summary>
         /// Create a new transaction item capturing necessary parameters.

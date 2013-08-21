@@ -8,7 +8,7 @@ using System.Linq;
 namespace CSharpAnalytics.Protocols.Urchin
 {
     /// <summary>
-    /// List of all known parameters that may be found in a Google Analytics Urchin style URI.
+    /// Lists all known parameters found in a Google Analytics Urchin style URI.
     /// </summary>
     /// <remarks>
     /// Used to facilitate the debugging of such requests.
@@ -24,6 +24,8 @@ namespace CSharpAnalytics.Protocols.Urchin
         public static readonly ParameterDefinition[] All = new[]
         {
             new ParameterDefinition("utmac",    "Account ID"),
+
+            // Hit
             new ParameterDefinition("utmdt",    "Page Title"),
             new ParameterDefinition("utmhn",    "Host Name"),
             new ParameterDefinition("utmp",     "Page"),
@@ -31,35 +33,43 @@ namespace CSharpAnalytics.Protocols.Urchin
             new ParameterDefinition("utmhid",   "Hit ID"),
             new ParameterDefinition("utmt",     "Hit Type"),
 
+            // Social Interactions
             new ParameterDefinition("utmsn",    "Social Network"),
             new ParameterDefinition("utmsa",    "Social Action"),
             new ParameterDefinition("utmsid",   "Social Action URL"),
 
+            // Event Tracking
             // Google's own ga_debug.js gets Event Type/Action reversed - this one is correct.
             new ParameterDefinition("utme",     "Event Type", s => UtmeDecoder.Decode(s, 5, 0)),
             new ParameterDefinition("utme",     "Event Action", s => UtmeDecoder.Decode(s, 5, 1)),
             new ParameterDefinition("utme",     "Event Label", s => UtmeDecoder.Decode(s, 5, 2)),
             new ParameterDefinition("utme",     "Event Value", s => UtmeDecoder.Decode(s, 5, 3)),
 
+            // Visitor
             new ParameterDefinition("utmcc",    "Visitor ID", s => ExtractUtma(s, 1)),
-            new ParameterDefinition("utmcc",    "Session Count", s => ExtractUtma(s, 5)),
-            new ParameterDefinition("utmcc",    "Session Time - First", s => EpochTime.FormatDate(ExtractUtma(s, 2))),
-            new ParameterDefinition("utmcc",    "Session Time - Last"  , s => EpochTime.FormatDate(ExtractUtma(s, 3))),
-            new ParameterDefinition("utmcc",    "Session Time - Current", s => EpochTime.FormatDate(ExtractUtma(s, 4))),
 
-            new ParameterDefinition("utmcc",    "Campaign Time", s => EpochTime.FormatDate(ExtractUtmz(s, 1))),
+            // Session
+            new ParameterDefinition("utmcc",    "Session Count", s => ExtractUtma(s, 5)),
+            new ParameterDefinition("utmcc",    "Session Time - First", s => FormatDate(ExtractUtma(s, 2))),
+            new ParameterDefinition("utmcc",    "Session Time - Last"  , s => FormatDate(ExtractUtma(s, 3))),
+            new ParameterDefinition("utmcc",    "Session Time - Current", s => FormatDate(ExtractUtma(s, 4))),
+
+            // Traffic Sources
+            new ParameterDefinition("utmcc",    "Campaign Time", s => FormatDate(ExtractUtmz(s, 1))),
             new ParameterDefinition("utmcc",    "Campaign Session", s => ExtractUtmz(s, 2)),
             new ParameterDefinition("utmcc",    "Campaign Count", s => ExtractUtmz(s, 3)),
             new ParameterDefinition("utmcc",    "Campaign Source", s => ExtractUtmz(s, 4, "utmcsr")),
             new ParameterDefinition("utmcc",    "Campaign Medium", s => ExtractUtmz(s, 4, "utmcmd")),
             new ParameterDefinition("utmcc",    "Campaign Name", s => ExtractUtmz(s, 4, "utmccn")),
 
+            // Custom variables
             new ParameterDefinition("utme",     "Custom Var 1", s => ExtractCustomVar(s, 1)),
             new ParameterDefinition("utme",     "Custom Var 2", s => ExtractCustomVar(s, 2)),
             new ParameterDefinition("utme",     "Custom Var 3", s => ExtractCustomVar(s, 3)),
             new ParameterDefinition("utme",     "Custom Var 4", s => ExtractCustomVar(s, 4)),
             new ParameterDefinition("utme",     "Custom Var 5", s => ExtractCustomVar(s, 5)),
 
+            // E-Commerce
             new ParameterDefinition("utmipc",   "Product Code"),
             new ParameterDefinition("utmipn",   "Product Name"),
             new ParameterDefinition("utmipr",   "Unit Price"),
@@ -75,6 +85,7 @@ namespace CSharpAnalytics.Protocols.Urchin
             new ParameterDefinition("utmtsp",   "Shipping Cost"),
             new ParameterDefinition("utmttx",   "Tax"),
         
+            // System Info
             new ParameterDefinition("utmul",    "Language"),
             new ParameterDefinition("utmcs",    "Encoding"),
             new ParameterDefinition("utmfl",    "Flash Version"),
@@ -82,13 +93,15 @@ namespace CSharpAnalytics.Protocols.Urchin
             new ParameterDefinition("utmsr",    "Screen Resolution"),
             new ParameterDefinition("utmvp",    "Browser Size"),
             new ParameterDefinition("utmsc",    "Color Depth"),
+
+            // General
             new ParameterDefinition("utmwv",    "Tracking Agent"),
             new ParameterDefinition("utmn",     "Cachebuster"),
 
             // Additional debug info not present in ga_debug.js
             new ParameterDefinition("utms",     "Session Hit Count"),
             new ParameterDefinition("aip",      "Anonymize IP", FormatBoolean),
-            new ParameterDefinition("utmht",    "Real Event Time", EpochTime.FormatDate)
+            new ParameterDefinition("utmht",    "Real Event Time", FormatDate)
         };
 
         /// <summary>
@@ -163,6 +176,19 @@ namespace CSharpAnalytics.Protocols.Urchin
             }
 
             return result.Trim();
+        }
+
+        /// <summary>
+        /// Format number of seconds since 1970 as formatted UTC date.
+        /// </summary>
+        /// <param name="secondsSince1970">Number of seconds since 01-Jan-1970.</param>
+        /// <returns>Formatted UTC date.</returns>
+        private static string FormatDate(string secondsSince1970)
+        {
+            EpochTime epochTime;
+            return EpochTime.TryParseSeconds(secondsSince1970, out epochTime)
+                ? epochTime.ToUtcString()
+                : string.Empty;
         }
 
         /// <summary>

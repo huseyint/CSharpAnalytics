@@ -54,5 +54,46 @@ namespace CSharpAnalytics.Test.Protocols
 
             Assert.AreEqual("Tue, 25 Dec 2012 23:36:45 GMT", epochTime.ToUtcString());
         }
+
+        [TestMethod]
+        public void EpochTime_TryParse_Returns_Correct_Value_Given_Valid_Number_Of_Seconds()
+        {
+            EpochTime epochTime;
+            var parsed = EpochTime.TryParseSeconds("1356479712", out epochTime);
+
+            Assert.IsTrue(parsed);
+
+            Assert.AreEqual("Tue, 25 Dec 2012 23:55:12 GMT", epochTime.ToUtcString());
+        }
+
+        [TestMethod]
+        public void EpochTime_TryParse_Fails_Given_Decimal_Number_Of_Seconds()
+        {
+            EpochTime epochTime;
+            var parsed = EpochTime.TryParseSeconds("123.45", out epochTime);
+
+            Assert.IsFalse(parsed);
+            Assert.IsNull(epochTime);
+        }
+
+        [TestMethod]
+        public void EpochTime_TryParse_Fails_Given_Empty_String()
+        {
+            EpochTime epochTime;
+            var parsed = EpochTime.TryParseSeconds("", out epochTime);
+
+            Assert.IsFalse(parsed);
+            Assert.IsNull(epochTime);
+        }
+
+        [TestMethod]
+        public void EpochTime_TryParse_Fails_Given_Text()
+        {
+            EpochTime epochTime;
+            var parsed = EpochTime.TryParseSeconds("Shiny", out epochTime);
+
+            Assert.IsFalse(parsed);
+            Assert.IsNull(epochTime);
+        }
     }
 }
