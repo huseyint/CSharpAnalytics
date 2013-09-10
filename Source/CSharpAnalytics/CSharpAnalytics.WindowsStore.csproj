@@ -119,6 +119,7 @@
     <Compile Include="Activities\SocialActivity.cs" />
     <Compile Include="Activities\TransactionItemActivity.cs" />
     <Compile Include="AutoMeasurement\AnalyticsScreenNameAttribute.cs" />
+    <Compile Include="AutoMeasurement\LocalFolderContractSerializer.cs" />
     <Compile Include="Network\BackgroundHttpClientRequester.cs" />
     <Compile Include="Network\BackgroundHttpFuncRequester.cs" />
     <Compile Include="Protocols\Measurement\IMeasurementActivity.cs" />
@@ -144,12 +145,13 @@
     <Compile Include="Sessions\SessionState.cs" />
     <Compile Include="Sessions\TimeoutSessionManager.cs" />
     <Compile Include="Sessions\Visitor.cs" />
-    <Compile Include="WindowsStore\AutoMeasurement.cs" />
     <Compile Include="AutoMeasurement\ITrackOwnView.cs" />
     <Compile Include="WindowsStore\AnalyticsUserOptions.cs" />
+    <Compile Include="WindowsStore\AutoMeasurement.cs">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="WindowsStore\SystemInformation.cs" />
     <Compile Include="WindowsStore\WindowsStoreEnvironment.cs" />
-    <Compile Include="WindowsStore\LocalFolderContractSerializer.cs" />
   </ItemGroup>
   <PropertyGroup Condition=" '$(VisualStudioVersion)' == '' ">
     <VisualStudioVersion>11.0</VisualStudioVersion>
